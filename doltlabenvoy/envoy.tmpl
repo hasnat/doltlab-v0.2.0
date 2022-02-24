@@ -117,7 +117,7 @@ static_resources:
                   cluster: fileapi_service
               cors:
                 allow_origin_string_match:
-                - exact: "https://doltlabui.local.deviceatlas.com"
+                - exact: "https://doltlabui${ENV_DOMAIN}"
                 allow_methods: GET, PUT, DELETE, POST, OPTIONS
                 allow_headers: authorization,keep-alive,user-agent,cache-control,content-type,content-transfer-encoding,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,x-grpc-web,dolthubapi-uploader-id,content-md5
                 allow_credentials: true

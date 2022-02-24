@@ -1,38 +1,46 @@
 
-#
-# THIS FILE IS GENERATED AUTOMATICALLY AND SHOULD NOT BE EDITED DIRECTLY
-#
-
 version: "3.9"  # optional since v1.27.0
 services:
+
+  doltlab-secrets-provisioner:
+    image: alpine
+    command:
+      - sh
+      - -c
+      - |
+        echo "$${ITER_TOKEN}" > /run/secrets/ITER_TOKEN
+    volumes:
+      - doltlab-secrets:/run/secrets:rw
+    environment:
+      - "ITER_TOKEN=${ITER_TOKEN}"
+
   doltlabdb:
     image: public.ecr.aws/dolthub/doltlab/postgres-server:v0.2.0
     environment:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
       POSTGRES_USER: "${POSTGRES_USER}"
       DOLTHUBAPI_PASSWORD: "${DOLTHUBAPI_PASSWORD}"
-#    networks:
-#      - doltlab
     volumes:
       - doltlabdb-data:/var/lib/postgresql/data
 
-
   doltlabenvoy:
-     image: envoyproxy/envoy-alpine:v1.18-latest
+     build: doltlabenvoy
+     expose:
+       - "80"
+       - "4321"
+     entrypoint: ""
      command:
-       -c /envoy.yaml
-     ports:
-       - "80:80"
-       - "4321:4321"
-#     networks:
-#       - doltlab
-     volumes:
-       - ${PWD}/envoy.yaml:/envoy.yaml
+       - sh
+       - -c
+       - |
+         cat envoy.tmpl | envsubst \$$ENV_DOMAIN > /usr/local/envoy.yaml
+         echo "Starting Envoy"
+         /docker-entrypoint.sh -c /usr/local/envoy.yaml -l "warning"
 
   doltlabfileserviceapi:
-#     depends_on:
-#        - doltlabenvoy
      image: public.ecr.aws/dolthub/doltlab/fileserviceapi-server:v0.2.0
+     expose:
+       - 60055
      command:
        -no-auth
        -outboundInternalServiceEndpointHost doltlabenvoy
@@ -45,9 +53,11 @@ services:
        VIRTUAL_PORT: 60055
        CERT_NAME: "${ENV_DOMAIN}"
        VHOST_LOCATION_CONF: "  
-    proxy_http_version 1.1;
-    client_max_body_size 200M;
-    proxy_buffer_size       8192k; proxy_buffers           8 2048k; proxy_busy_buffers_size 8192k;
+    proxy_http_version      1.1;
+    client_max_body_size    200M;
+    proxy_buffer_size       8192k;
+    proxy_buffers           8 2048k;
+    proxy_busy_buffers_size 8192k;
     add_header 'Access-Control-Allow-Origin' 'https://doltlabui${ENV_DOMAIN}';
     add_header 'Access-Control-Allow-Credentials' 'true';
     add_header 'Access-Control-Allow-Headers' 'Accept,Origin,DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Content-Range,Range,authorization,keep-alive,user-agent,cache-control,content-type,content-transfer-encoding,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,x-grpc-web,dolthubapi-uploader-id,content-md5';
@@ -66,16 +76,10 @@ services:
       return 204;
     }"
        SERVER_PASS: proxy_pass http://doltlabfileserviceapi:60055
-#     networks:
-#       - doltlab
      volumes:
        - doltlab-user-uploads:/doltlab-user-uploads
 
   doltlabremoteapi:
-#    depends_on:
-#      - doltlabdb
-#      - doltlabenvoy
-#      - doltlabfileserviceapi
     image: public.ecr.aws/dolthub/doltlab/doltremoteapi-server:v0.2.0
     command:
       -alsologtostderr
@@ -85,35 +89,24 @@ services:
       -outboundInternalServiceEndpointPort 9480
       -backing-store local
       -dir /doltlab-remote-storage
-#    ports:
-#      - "50051:50051"
-#      - "100:100"
+    expose:
+      - "50051"
+      - "100"
     environment:
       BUILD_SCM_REVISION: doltlabremoteapi-v0.2.0
-#      VIRTUAL_HOST: "doltlabremoteapi${ENV_DOMAIN}"
-#      VIRTUAL_PORT: "100"
-#      VIRTUAL_PROTO: grpc
-#    networks:
-#      - doltlab
     volumes:
       - doltlab-remote-storage:/doltlab-remote-storage
 
-
-
-
   doltlabapi:
-#    depends_on:
-#      - doltlabdb
-#      - doltlabenvoy
-#      - doltlabremoteapi
-#      - doltlabfileserviceapi
     image: public.ecr.aws/dolthub/doltlab/dolthubapi-server:v0.2.0
+    expose:
+      - 60051
     command:
       -alsologtostderr
       -doltlab
       -outboundInternalServiceEndpointHost doltlabenvoy
-      -iterTokenEncKeysFile /iter_token.keys
-      -iterTokenDecKeysFile /iter_token.keys
+      -iterTokenEncKeysFile /run/secrets/ITER_TOKEN
+      -iterTokenDecKeysFile /run/secrets/ITER_TOKEN
       -postgres
       -processAsyncTasks
       -dolthubWhitelistAllowAll
@@ -127,15 +120,6 @@ services:
       -emailPort "${EMAIL_PORT}"
       -emailUsername "${EMAIL_USERNAME}"
       -emailPassword "${EMAIL_PASSWORD}"
-#-userImportUploadsFileServiceBrowserHost "httsp://doltlabfileserviceapi${ENV_DOMAIN}
-#-userImportUploadsFileServiceServerHost http://doltlabfileserviceapi:60055
-
-# orginials
-#      -userImportUploadsFileServiceBrowserHost "http://${HOST_IP}:4321"
-#      -userImportUploadsFileServiceServerHost http://doltlabenvoy:4321
-
-#    networks:
-#      - doltlab
     environment:
       BUILD_SCM_REVISION: doltlab-dolthubapi-v0.2.0
       MAILCHIMP_LIST_ID: does_not_work
@@ -144,44 +128,23 @@ services:
       DOLTHUBAPI_PASSWORD: "${DOLTHUBAPI_PASSWORD}"
       VIRTUAL_HOST: "doltlabapi${ENV_DOMAIN}"
       VIRTUAL_PORT: 60051
-#      VIRTUAL_PROTO: grpc
-#      VHOST_LOCATION_CONF: "proxy_buffer_size       8192k;proxy_buffers           8 2048k; proxy_busy_buffers_size 8192k;"
-#      VHOST_LOCATION_CONF: "grpc_set_header         x-doltremoteapi-is-authorized true;"
-#      VHOST_SERVER_CONF: " large_client_header_buffers 8 256k; client_body_buffer_size 200m;"
-
     volumes:
-      - ${PWD}/iter_token.keys:/iter_token.keys
+      - doltlab-secrets:/run/secrets:ro
+
 
 
   doltlabgraphql:
-#    depends_on:
-#      - doltlabdb
-#      - doltlabenvoy
-#      - doltlabremoteapi
-#      - doltlabapi
-#      - doltlabfileserviceapi
     image: public.ecr.aws/dolthub/doltlab/dolthubapi-graphql-server:v0.2.0
-#    networks:
-#      - doltlab
     environment:
       VIRTUAL_HOST: "doltlabgraphql${ENV_DOMAIN}"
       VIRTUAL_PORT: 9000
-#      VIRTUAL_PROTO: grpc
       VHOST_HTTP_CONF: " http2_max_field_size  1m; http2_max_header_size 1m; http2_recv_buffer_size 1m; http2_chunk_size 1m; "
       CERT_NAME: "${ENV_DOMAIN}"
-#      DOLTHUBAPI_URL: http://doltlabapi:60051
       DOLTHUBAPI_URL: http://doltlabenvoy:9443
       NODE_ENV: development
 
 
   doltlabui:
-#    depends_on:
-#      - doltlabdb
-#      - doltlabenvoy
-#      - doltlabremoteapi
-#      - doltlabapi
-#      - doltlabgraphql
-#      - doltlabfileserviceapi
     image: public.ecr.aws/dolthub/doltlab/dolthub-server:v0.2.0
     environment:
       VIRTUAL_HOST: "doltlabui${ENV_DOMAIN}"
@@ -191,9 +154,7 @@ services:
       NODE_OPTIONS: "--max-old-space-size=16384"
       DOLTHUB_VERSION: "doltlab-v0.2.0"
       STRIPE_API_KEY: "does_not_work"
-#      HOST_IP: "${HOST_IP}"
       HOST_IP: "doltlabui${ENV_DOMAIN}"
-#      INTERNAL_GRAPHQLAPI_URL: "http://doltlabenvoy:10080/graphql"
       INTERNAL_GRAPHQLAPI_URL: "http://doltlabgraphql:9000/graphql"
 
       VHOST_LOCATION_CONF: "
@@ -215,8 +176,6 @@ services:
         add_header 'Content-Length' 0;
         return 204;
       }"
-#    networks:
-#      - doltlab
 
 
   mailhog:
@@ -224,31 +183,30 @@ services:
     image: mailhog/mailhog
     restart: unless-stopped
     environment:
-      - "CERT_NAME=${ENV_DOMAIN}"
       - "VIRTUAL_HOST=mailhog${ENV_DOMAIN}"
       - "VIRTUAL_PORT=8025"
-#    networks:
-#      - doltlab
 
   nginx:
     container_name: nginx
     image: hasnat/nginx-proxy:rc.combined.m1
     restart: unless-stopped
     environment:
-      - "HTTP_PORT=8080"
-#    networks:
-#      - doltlab
+      - "HTTP_PORT=80"
     ports:
-      - "8080:8080"
+      - "80:80"
       - "443:443"
     volumes:
-      - "${DA_SSL_CERTS_LOCATION}:/etc/nginx/certs:ro"
-      - "/var/run/docker.sock:/tmp/docker.sock:ro"
-#networks:
-#    doltlab:
+      - nginx-certs:/etc/nginx/certs:ro
+      - /var/run/docker.sock:/tmp/docker.sock:ro
 
 volumes:
+  doltlab-secrets: {}
   doltlab-remote-storage: {}
   doltlabdb-data: {}
   doltlab-user-uploads: {}
-
+  nginx-certs:
+    driver_opts:
+      type: volume
+      driver: local
+      source: "${SSL_CERTS_LOCATION}"
+      read_only: "true"
