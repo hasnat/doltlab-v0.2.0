@@ -1,0 +1,41 @@
+
+version: "3.9"  # optional since v1.27.0
+services:
+
+
+  doltlabplayground:
+    container_name: doltlabplayground
+    build: doltplayground
+# doesnt work on m1 macs
+#    platform: linux/amd64
+    working_dir: /work
+    entrypoint: ""
+    command: tail -f /dev/null
+    # command: dolt sql-server -H 0.0.0.0
+    ports:
+      # exposing 3307 for convenience
+      - "3306:3306"
+    volumes:
+      - doltlabplayground-data:/work
+      - doltlabplayground-creds-data:/home/.dolt
+
+  doltlabplayground2:
+    container_name: doltlabplayground2
+    build: doltplayground2
+    # doesnt work on m1 macs
+    #    platform: linux/amd64
+    working_dir: /work
+    entrypoint: ""
+    command: tail -f /dev/null
+    # command: dolt sql-server -H 0.0.0.0
+    ports:
+      # exposing 3307 for convenience
+      - "3306:3306"
+    volumes:
+      - doltlabplayground-data:/work
+      - doltlabplayground-creds-data:/home/.dolt
+
+
+volumes:
+  doltlabplayground-data: {}
+  doltlabplayground-creds-data: {}

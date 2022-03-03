@@ -16,6 +16,7 @@ services:
 
   doltlabdb:
     image: public.ecr.aws/dolthub/doltlab/postgres-server:v0.2.0
+    restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
       POSTGRES_USER: "${POSTGRES_USER}"
@@ -25,6 +26,7 @@ services:
 
   doltlabenvoy:
      build: doltlabenvoy
+     restart: unless-stopped
      expose:
        - "80"
        - "4321"
@@ -39,6 +41,7 @@ services:
 
   doltlabfileserviceapi:
      image: public.ecr.aws/dolthub/doltlab/fileserviceapi-server:v0.2.0
+     restart: unless-stopped
      expose:
        - 60055
      command:
@@ -58,14 +61,14 @@ services:
     proxy_buffer_size       8192k;
     proxy_buffers           8 2048k;
     proxy_busy_buffers_size 8192k;
-    add_header 'Access-Control-Allow-Origin' 'https://doltlabui${ENV_DOMAIN}';
+    add_header 'Access-Control-Allow-Origin' '${HTTP_PROTOCOL}://doltlabui${ENV_DOMAIN}';
     add_header 'Access-Control-Allow-Credentials' 'true';
     add_header 'Access-Control-Allow-Headers' 'Accept,Origin,DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Content-Range,Range,authorization,keep-alive,user-agent,cache-control,content-type,content-transfer-encoding,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,x-grpc-web,dolthubapi-uploader-id,content-md5';
     add_header 'Access-Control-Allow-Methods' 'GET,POST,OPTIONS,PUT,DELETE,PATCH';
     add_header 'Vary' 'Origin';
 
     if ($$request_method = 'OPTIONS') {
-      add_header 'Access-Control-Allow-Origin' 'https://doltlabui${ENV_DOMAIN}';
+      add_header 'Access-Control-Allow-Origin' '${HTTP_PROTOCOL}://doltlabui${ENV_DOMAIN}';
       add_header 'Access-Control-Allow-Credentials' 'true';
       add_header 'Access-Control-Allow-Headers' 'Accept,Origin,DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Content-Range,Range,authorization,keep-alive,user-agent,cache-control,content-type,content-transfer-encoding,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,x-grpc-web,dolthubapi-uploader-id,content-md5';
       add_header 'Access-Control-Allow-Methods' 'GET,POST,OPTIONS,PUT,DELETE,PATCH';
@@ -75,12 +78,16 @@ services:
       add_header 'Content-Length' 0;
       return 204;
     }"
-       SERVER_PASS: proxy_pass http://doltlabfileserviceapi:60055
+       SERVER_PASS: "proxy_pass http://doltlabfileserviceapi:60055"
      volumes:
        - doltlab-user-uploads:/doltlab-user-uploads
 
   doltlabremoteapi:
     image: public.ecr.aws/dolthub/doltlab/doltremoteapi-server:v0.2.0
+    restart: unless-stopped
+#      for local clone I needed this, tho this then breaks UI sql interactions!!! (may be duplicate this service)
+#      -http-host doltlabremoteapihttp${ENV_DOMAIN}
+#      -http-port 80
     command:
       -alsologtostderr
       -http-host doltlabremoteapi
@@ -94,11 +101,34 @@ services:
       - "100"
     environment:
       BUILD_SCM_REVISION: doltlabremoteapi-v0.2.0
+      VIRTUAL_HOST: "doltlabremoteapi${ENV_DOMAIN}"
+      VIRTUAL_PORT: 50051
+      VHOST_LOCATION_CONF: "
+          #proxy_http_version      1.1;
+          client_max_body_size    200M;
+          proxy_buffer_size       8192k;
+          proxy_buffers           8 2048k;
+          proxy_busy_buffers_size 8192k;
+        "
+      SERVER_PASS: "grpc_pass grpc://doltlabremoteapi:50051"
+#      SERVER_PASS: "proxy_pass http://doltlabremoteapi:100"
     volumes:
       - doltlab-remote-storage:/doltlab-remote-storage
 
+  doltlabremoteapihttp:
+    container_name: doltlabremoteapihttp
+    image: alpine/socat
+    expose:
+      - "80"
+    command: "TCP4-LISTEN:80,fork TCP:doltlabremoteapi:80"
+    environment:
+      - VIRTUAL_HOST=doltlabremoteapihttp${ENV_DOMAIN}
+      - VIRTUAL_PORT=80
+      - ${HTTP_PROTOCOL}_METHOD=noredirect
+
   doltlabapi:
     image: public.ecr.aws/dolthub/doltlab/dolthubapi-server:v0.2.0
+    restart: unless-stopped
     expose:
       - 60051
     command:
@@ -112,10 +142,10 @@ services:
       -dolthubWhitelistAllowAll
       -port 60051
       -pghost doltlabdb
-      -userImportUploadsFileServiceBrowserHost "https://doltlabfileserviceapi${ENV_DOMAIN}"
+      -userImportUploadsFileServiceBrowserHost "${HTTP_PROTOCOL}://doltlabfileserviceapi${ENV_DOMAIN}"
       -userImportUploadsFileServiceServerHost http://doltlabenvoy:4321
       -noReplyEmail "${NO_REPLY_EMAIL}"
-      -websiteURL "https://doltlabui${ENV_DOMAIN}"
+      -websiteURL "${HTTP_PROTOCOL}://doltlabui${ENV_DOMAIN}"
       -emailHost "${EMAIL_HOST}"
       -emailPort "${EMAIL_PORT}"
       -emailUsername "${EMAIL_USERNAME}"
@@ -135,6 +165,7 @@ services:
 
   doltlabgraphql:
     image: public.ecr.aws/dolthub/doltlab/dolthubapi-graphql-server:v0.2.0
+    restart: unless-stopped
     environment:
       VIRTUAL_HOST: "doltlabgraphql${ENV_DOMAIN}"
       VIRTUAL_PORT: 9000
@@ -146,6 +177,7 @@ services:
 
   doltlabui:
     image: public.ecr.aws/dolthub/doltlab/dolthub-server:v0.2.0
+    restart: unless-stopped
     environment:
       VIRTUAL_HOST: "doltlabui${ENV_DOMAIN}"
       VIRTUAL_PORT: 3000
@@ -159,14 +191,14 @@ services:
 
       VHOST_LOCATION_CONF: "
       client_max_body_size 200M;
-      add_header 'Access-Control-Allow-Origin' 'https://doltlabfileserviceapi${ENV_DOMAIN}';
+      add_header 'Access-Control-Allow-Origin' '${HTTP_PROTOCOL}://doltlabfileserviceapi${ENV_DOMAIN}';
       add_header 'Access-Control-Allow-Credentials' 'true';
       add_header 'Access-Control-Allow-Headers' 'Accept,Origin,DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Content-Range,Range,authorization,keep-alive,user-agent,cache-control,content-type,content-transfer-encoding,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,x-grpc-web,dolthubapi-uploader-id,content-md5';
       add_header 'Access-Control-Allow-Methods' 'GET,POST,OPTIONS,PUT,DELETE,PATCH';
       add_header 'Vary' 'Origin';
 
       if ($$request_method = 'OPTIONS') {
-        add_header 'Access-Control-Allow-Origin' 'https://doltlabfileserviceapi${ENV_DOMAIN}';
+        add_header 'Access-Control-Allow-Origin' '${HTTP_PROTOCOL}://doltlabfileserviceapi${ENV_DOMAIN}';
         add_header 'Access-Control-Allow-Credentials' 'true';
         add_header 'Access-Control-Allow-Headers' 'Accept,Origin,DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Content-Range,Range,authorization,keep-alive,user-agent,cache-control,content-type,content-transfer-encoding,x-accept-content-transfer-encoding,x-accept-response-streaming,x-user-agent,x-grpc-web,dolthubapi-uploader-id,content-md5';
         add_header 'Access-Control-Allow-Methods' 'GET,POST,OPTIONS,PUT,DELETE,PATCH';
@@ -196,7 +228,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - nginx-certs:/etc/nginx/certs:ro
+      - "${SSL_CERTS_LOCATION}:/etc/nginx/certs:ro"
       - /var/run/docker.sock:/tmp/docker.sock:ro
 
 volumes:
@@ -204,9 +236,9 @@ volumes:
   doltlab-remote-storage: {}
   doltlabdb-data: {}
   doltlab-user-uploads: {}
-  nginx-certs:
-    driver_opts:
-      type: volume
-      driver: local
-      source: "${SSL_CERTS_LOCATION}"
-      read_only: "true"
+#  nginx-certs:
+#    driver_opts:
+#      type: volume
+#      driver: local
+#      source: "${SSL_CERTS_LOCATION}"
+#      read_only: "true"
