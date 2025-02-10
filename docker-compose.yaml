@@ -236,9 +236,4 @@ volumes:
   doltlab-remote-storage: {}
   doltlabdb-data: {}
   doltlab-user-uploads: {}
-#  nginx-certs:
-#    driver_opts:
-#      type: volume
-#      driver: local
-#      source: "${SSL_CERTS_LOCATION}"
-#      read_only: "true"
+
